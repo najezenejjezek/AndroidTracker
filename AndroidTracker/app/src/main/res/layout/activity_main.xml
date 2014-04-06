@@ -1,0 +1,81 @@
+<ScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="fill_parent"
+    android:layout_height="fill_parent">
+    <RelativeLayout
+        android:layout_width="fill_parent"
+        android:layout_height="fill_parent"
+        xmlns:android="http://schemas.android.com/apk/res/android">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textAppearance="?android:attr/textAppearanceMedium"
+            android:id="@+id/textViewLocation"
+            android:layout_below="@+id/prefEditTextTime"
+            android:layout_alignParentLeft="true"
+            android:layout_alignRight="@+id/buttonLog" />
+        <View
+            android:layout_width="fill_parent"
+            android:layout_height="1dip"
+            android:background="#333"
+            android:layout_above="@id/textViewLocation"
+            />
+
+
+        <CheckBox
+            android:id="@+id/prefCheckBoxGps"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:text="MaxGps"
+            android:checked="false"
+            android:layout_alignParentTop="true"
+            android:layout_toRightOf="@+id/prefCheckBoxWifi" />
+
+        <TextView
+            android:id="@+id/prefEditTextAcc"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:layout_alignParentLeft="true"
+            android:layout_below="@+id/prefCheckBoxGps"
+            android:layout_toLeftOf="@+id/prefEditTextTime" />
+
+        <TextView
+            android:id="@+id/prefEditTextTime"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:layout_alignParentRight="true"
+            android:layout_alignBottom="@+id/prefEditTextAcc"
+            android:layout_alignTop="@+id/prefEditTextAcc"
+            android:layout_toRightOf="@+id/prefCheckBoxWifi" />
+
+        <Button
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Log"
+            android:id="@+id/buttonLog"
+            android:layout_marginTop="5dp"
+            android:layout_below="@+id/textViewUploaded"
+            android:layout_alignParentRight="true" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textAppearance="?android:attr/textAppearanceMedium"
+            android:id="@+id/textViewUploaded"
+            android:layout_marginTop="20dp"
+            android:layout_below="@+id/textViewLocation"
+            android:layout_alignParentLeft="true"
+            android:layout_alignParentRight="true" />
+
+        <CheckBox
+            android:id="@+id/prefCheckBoxWifi"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Change Wifi state"
+            android:checked="false"
+            android:layout_alignParentTop="true"
+            android:layout_alignParentLeft="true" />
+
+    </RelativeLayout>
+</ScrollView>
