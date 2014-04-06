@@ -1,0 +1,14 @@
+#!/bin/bash
+# This is a simple script and will be executed on your CI system if
+# available.  Otherwise it will execute while your application is stopped
+# before the build step.  This script gets executed directly, so it
+# could be python, php, ruby, etc.
+set -x
+if [ ! -d $OPENSHIFT_DATA_DIR/grails-2.3.5 ]
+then
+        mkdir $OPENSHIFT_DATA_DIR/.grails
+        cd $OPENSHIFT_DATA_DIR
+        wget http://dist.springframework.org.s3.amazonaws.com/release/GRAILS/grails-2.3.5.zip
+        unzip grails-2.3.5.zip
+        rm -f grails-2.3.5.zip
+fi
