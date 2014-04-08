@@ -32,6 +32,16 @@ public class LogActivity extends ActionBarActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_log);
         logTextView = (TextView) findViewById(R.id.textViewLog);
+        loadRecordsFromFile();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        loadRecordsFromFile();
+    }
+
+    public void loadRecordsFromFile(){
         String jsonFile = FileHandler.getInstance(getApplicationContext()).readFromFile();
         String [] jsonStringArray = jsonFile.split(";");
         String log = "";
@@ -45,11 +55,7 @@ public class LogActivity extends ActionBarActivity {
             }
         }
         logTextView.setText(log);
-
-
-
     }
-
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {

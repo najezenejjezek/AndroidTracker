@@ -22,8 +22,9 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.Timer;
-import java.util.TimerTask;
 
+
+import cz.tul.android.tracker.model.Store;
 import cz.tul.android.tracker.net.Connection;
 import cz.tul.android.tracker.io.FileHandler;
 
@@ -40,22 +41,21 @@ public class LocationService extends Service {
     private boolean gpsMax = false;
     private boolean canChangeWifi = false;
 
-
-    Timer locTimer;
     long gpsCheckTime = 60000;
     long gpsMinDistance = 100;
     boolean gps_recorder_running = false;
     Location lastLocation = null;
     long lastprovidertimestamp = 0;
-    Location loc =null;
     LocationManager locationManager;
     LocationListener locationListener = null;
 
     SharedPreferences mySharedPreferences;
+    Store store ;
 
     //runs without a timer by reposting this handler at the end of the runnable
     Handler timerWifiHandler = new Handler();
     Handler timerGpsHandler = new Handler();
+    Handler checkLocationHandler = new Handler();
 
     Runnable timerGpsRunnable = new Runnable() {
 
@@ -65,6 +65,7 @@ public class LocationService extends Service {
             timerGpsHandler.postDelayed(this, 5*60*1000);
         }
     };
+
 
 
     Runnable timerWifiRunnable = new Runnable() {
@@ -100,6 +101,8 @@ public class LocationService extends Service {
     public void onCreate() {
         loadPref();
         locationManager = (LocationManager) getApplicationContext().getSystemService(Context.LOCATION_SERVICE);
+        store = Store.getInstance();
+        lastLocation = store.getActualLoc();
         locationListener = new LocationListener() {
 
             @Override
@@ -131,8 +134,9 @@ public class LocationService extends Service {
 
         SharedPreferences.OnSharedPreferenceChangeListener listener = new SharedPreferences.OnSharedPreferenceChangeListener() {
             public void onSharedPreferenceChanged(SharedPreferences prefs, String key) {
-                if ("edittext_preference_time".equals(key) || "edittext_preference_acc".equals(key)){
+                if ("edittext_preference_time".equals(key) || "edittext_preference_acc".equals(key) ){
                     loadPref();
+                    Log.d("MyTag","changePref acc or time");
                     locationManager.removeUpdates(locationListener);
                     startRecording();
 
@@ -147,6 +151,7 @@ public class LocationService extends Service {
     public void onDestroy() {
         timerGpsHandler.removeCallbacksAndMessages(null);
         timerWifiHandler.removeCallbacksAndMessages(null);
+        checkLocationHandler.removeCallbacksAndMessages(null);
         locationManager.removeUpdates(locationListener);
 
         super.onDestroy();
@@ -164,6 +169,11 @@ public class LocationService extends Service {
     }
 
     private void publishResults(Location location, boolean uploaded,int result) {
+        if (uploaded){
+            store.setUploadedLoc(location);
+        }else {
+            store.setActualLoc(location);
+        }
         Intent intent = new Intent(NOTIFICATION);
         intent.putExtra(RESULT, result);
         intent.putExtra(UPLOADED,uploaded);
@@ -256,10 +266,21 @@ public class LocationService extends Service {
 
 
     private void startRecording() {
-        if(locTimer !=null) locTimer.cancel();
-        locTimer = new Timer();
+
         long checkInterval = gpsCheckTime;//getGPSCheckMilliSecsFromPrefs();
         long minDistance = gpsMinDistance; //getMinDistanceFromPrefs();
+
+        Runnable locationRefreshRunnable = new Runnable() {
+
+            @Override
+            public void run() {
+                Log.d("MyTag", "update from runnable");
+                Location location = getBestLocation();
+                doLocationUpdate(location, false);
+                checkLocationHandler.postDelayed(this, gpsCheckTime);
+            }
+        };
+
         locationManager.removeUpdates(locationListener);
 
         for (String s : locationManager.getAllProviders()) {
@@ -268,16 +289,14 @@ public class LocationService extends Service {
                         minDistance, locationListener);
             }
 
-            gps_recorder_running = true;
+        }
+        synchronized (checkLocationHandler){
+            checkLocationHandler.removeCallbacksAndMessages(null);
+            Log.d("MyTag", "removeCallbacks");
+            checkLocationHandler.postDelayed(locationRefreshRunnable,0);
+            Log.d("MyTag", "PostDelayed");
         }
 
-        locTimer.scheduleAtFixedRate(new TimerTask() {
-            @Override
-            public void run() {
-                Location location = getBestLocation();
-                doLocationUpdate(location, false);
-            }
-        }, 0, checkInterval);
     }
 
     private void shortGpsUpdate(){
@@ -313,58 +332,59 @@ public class LocationService extends Service {
     }
 
 
-    private synchronized void doLocationUpdate(Location l, boolean force) {
+    private void doLocationUpdate(Location location, boolean force) {
         result = Activity.RESULT_OK;
-        publishResults(l,false,result);
         long minDistance = gpsMinDistance;//getMinDistanceFromPrefs();
-        Log.d("MyTag", "update received:" + l);
+        Log.d("MyTag", "update received:" + location);
+        publishResults(location,false,result);
+        synchronized (store){
+            Log.d("MyTag", "Start sync");
+            if (location == null) {
+                Log.d("MyTag", "Empty location");
+                if (force)
+                    Toast.makeText(this, "Current location not available",
+                            Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (store.getUploadedLoc() != null) {
+                float distance = location.distanceTo(store.getUploadedLoc());
+                Log.d("MyTag", "Distance to last: " + distance);
+                if (location.distanceTo(store.getUploadedLoc()) < minDistance && !force) {
+                    Log.d("MyTag", "Position didn't change");
+                    return;
+                }
+                if (location.getAccuracy() >= store.getUploadedLoc().getAccuracy()
+                        && location.distanceTo(store.getUploadedLoc()) < location.getAccuracy() && !force) {
+                    Log.d("MyTag",
+                            "Accuracy got worse and we are still "
+                                    + "within the accuracy range.. Not updating");
+                    return;
+                }
+                if (location.getTime() <= (lastprovidertimestamp+1000) && !force) {
+                    Log.d("MyTag", "Timestamp not never than last");
+                    return;
+                }
+            }
 
-        if (l == null) {
-            Log.d("MyTag", "Empty location");
-            if (force)
-                Toast.makeText(this, "Current location not available",
-                        Toast.LENGTH_SHORT).show();
-            return;
-        }
-        if (lastLocation != null) {
-            float distance = l.distanceTo(lastLocation);
-            Log.d("MyTag", "Distance to last: " + distance);
-            if (l.distanceTo(lastLocation) < minDistance && !force) {
-                Log.d("MyTag", "Position didn't change");
-                return;
-            }
-            if (l.getAccuracy() >= lastLocation.getAccuracy()
-                    && l.distanceTo(lastLocation) < l.getAccuracy() && !force) {
-                Log.d("MyTag",
-                        "Accuracy got worse and we are still "
-                                + "within the accuracy range.. Not updating");
-                return;
-            }
-            if (l.getTime() <= (lastprovidertimestamp+1000) && !force) {
-                Log.d("MyTag", "Timestamp not never than last");
-                return;
-            }
-        }
+            // upload/store your location here
 
-        // upload/store your location here
-        loc =  l;
-        lastprovidertimestamp = loc.getTime();
-        lastLocation = loc;
+            lastprovidertimestamp = location.getTime();
+            publishResults(location, true, Activity.RESULT_OK);
+            Log.d("MyTag", "End sync");
+        }
         JSONObject jsonObject = new JSONObject();
         try{
-            jsonObject.put("time",loc.getTime());
-            jsonObject.put("latitude",((int)(loc.getLatitude()*1000000))/(1000000.0));
-            jsonObject.put("longitude",((int)(loc.getLongitude()*1000000))/(1000000.0));
-           // jsonObject.put("latitude",loc.getLatitude());
-            //jsonObject.put("longitude",loc.getLongitude());
-            jsonObject.put("accuracy",((int)(loc.getAccuracy()*100))/100.0);
-            jsonObject.put("provider",loc.getProvider());
+            jsonObject.put("time",location.getTime());
+            jsonObject.put("latitude",((int)(location.getLatitude()*1000000))/(1000000.0));
+            jsonObject.put("longitude",((int)(location.getLongitude()*1000000))/(1000000.0));
+            jsonObject.put("accuracy",((int)(location.getAccuracy()*100))/100.0);
+            jsonObject.put("provider",location.getProvider());
             jsonObject.put("username",mySharedPreferences.getString("edittext_preference_username","john"));
 
         }catch (JSONException ex){
             Log.d("MyTag",ex.toString());
         }
-        publishResults(loc, true, Activity.RESULT_OK);
+
         if(Connection.testConnection()){
             JSONArray jsonArray = loadJsonToArray();
             jsonArray.put(jsonObject);
@@ -399,9 +419,24 @@ public class LocationService extends Service {
         return jsonArray;
     }
 
+
+
     public class MyBinder extends Binder {
         LocationService getService() {
             return LocationService.this;
         }
     }
+
+}
+
+ class LocUpdate{
+    private static LocUpdate instance = null;
+    public static LocUpdate getInstance() {
+        if (instance == null) {
+            instance = new LocUpdate();
+        }
+        return instance;
+    }
+
+
 }

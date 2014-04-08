@@ -1,6 +1,7 @@
 package cz.tul.android.tracker.app;
 
 import android.app.AlertDialog;
+import android.app.IntentService;
 import android.content.BroadcastReceiver;
 import android.content.DialogInterface;
 import android.content.IntentFilter;
@@ -76,22 +77,12 @@ public class MainActivity extends ActionBarActivity {
 
         store = Store.getInstance();
 
-        SharedPreferences.OnSharedPreferenceChangeListener sharedPrefListener = new SharedPreferences.OnSharedPreferenceChangeListener() {
-            public void onSharedPreferenceChanged(SharedPreferences prefs, String key) {
-                if ("checkbox_preference_wifi".equals(key) || "checkbox_preference_gps".equals(key)){
-                    loadPref();
-                    stopService(new Intent(getApplicationContext(), LocationService.class));
-                    startService(new Intent(getApplicationContext() ,LocationService.class));
 
-                }
-            }
-        };
-        mySharedPreferences.registerOnSharedPreferenceChangeListener(sharedPrefListener);
         //FileHandler.getInstance(getApplicationContext()).clearFile();
         loadPref();
+
         if (userVerified){
-            Intent intent = new Intent(this, LocationService.class);
-            startService(intent);
+            startService(new Intent(getApplicationContext(), LocationService.class));
         }else{
             AlertDialog.Builder alert = new AlertDialog.Builder(this);
             alert.setTitle("Sign in");
@@ -107,8 +98,7 @@ public class MainActivity extends ActionBarActivity {
                         SharedPreferences.Editor editor = mySharedPreferences.edit();
                         editor.putString("edittext_preference_username",value);
                         editor.commit();
-                        Intent intent = new Intent(getApplicationContext(), LocationService.class);
-                        startService(intent);
+                        startService(new Intent(getApplicationContext(), LocationService.class));
 
                     }else {
                         Toast.makeText(getApplicationContext(), "Username is required to use an app.",Toast.LENGTH_SHORT);
@@ -127,6 +117,19 @@ public class MainActivity extends ActionBarActivity {
             alert.show();
 
         }
+
+        SharedPreferences.OnSharedPreferenceChangeListener sharedPrefListener = new SharedPreferences.OnSharedPreferenceChangeListener() {
+            public void onSharedPreferenceChanged(SharedPreferences prefs, String key) {
+                if ("checkbox_preference_wifi".equals(key) || "checkbox_preference_gps".equals(key)){
+                    loadPref();
+                    Log.d("MyTag","Change pref "+key);
+                    stopService(new Intent(getApplicationContext(), LocationService.class));
+                    startService(new Intent(getApplicationContext(), LocationService.class));
+
+                }
+            }
+        };
+        mySharedPreferences.registerOnSharedPreferenceChangeListener(sharedPrefListener);
 
 
 
@@ -166,11 +169,6 @@ public class MainActivity extends ActionBarActivity {
         super.onPause();
     }
 
-    @Override
-    protected void onDestroy() {
-        mySharedPreferences.unregisterOnSharedPreferenceChangeListener(sharedPrefListener);
-        super.onDestroy();
-    }
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
@@ -223,11 +221,11 @@ public class MainActivity extends ActionBarActivity {
                 boolean uploaded = bundle.getBoolean(LocationService.UPLOADED);
                 if (resultCode == RESULT_OK) {
                     if (uploaded){
-                        store.setUploadedLoc(location);
+                        //store.setUploadedLoc(location);
                         Date date = new Date(location.getTime());
                         uploadedRecord.setText("Uploaded location:\nLat: " + location.getLatitude() + "\nLong: " + location.getLongitude() + "\nProv: " + location.getProvider() + "\nAcc: " + location.getAccuracy() + "\nTime:" + date.toString());
                     }else{
-                        store.setActualLoc(location);
+                        //store.setActualLoc(location);
                         Date date = new Date(location.getTime());
                         locViewGPS.setText("Actual location:\nLat: "+location.getLatitude()+"\nLong: "+location.getLongitude()+"\nProv: "+location.getProvider()+"\nAcc: "+location.getAccuracy() + "\nTime:"+date.toString());
                     }
