@@ -1,6 +1,7 @@
 package cz.tul.android.tracker.app;
 
 import android.app.Activity;
+import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
@@ -13,6 +14,7 @@ import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.PowerManager;
 import android.preference.PreferenceManager;
 import android.util.Log;
 import android.widget.Toast;
@@ -40,62 +42,23 @@ public class LocationService extends Service {
     private int result = Activity.RESULT_CANCELED;
     private boolean gpsMax = false;
     private boolean canChangeWifi = false;
+    private boolean wifiChangeFromApp = false;
 
     long gpsCheckTime = 60000;
     long gpsMinDistance = 100;
-    boolean gps_recorder_running = false;
     Location lastLocation = null;
     long lastprovidertimestamp = 0;
     LocationManager locationManager;
-    LocationListener locationListener = null;
 
     SharedPreferences mySharedPreferences;
     Store store ;
 
-    //runs without a timer by reposting this handler at the end of the runnable
-    Handler timerWifiHandler = new Handler();
-    Handler timerGpsHandler = new Handler();
-    Handler checkLocationHandler = new Handler();
 
-    Runnable timerGpsRunnable = new Runnable() {
-
-        @Override
-        public void run() {
-            shortGpsUpdate();
-            timerGpsHandler.postDelayed(this, 5*60*1000);
-        }
-    };
+    AlarmRefresh alarmRefresh = new AlarmRefresh();
+    AlarmWifi alarmWifi = new AlarmWifi();
+    AlarmGPS alarmGPS = new AlarmGPS();
 
 
-
-    Runnable timerWifiRunnable = new Runnable() {
-
-        @Override
-        public void run() {
-            final WifiManager wifiManager = (WifiManager)getSystemService(Context.WIFI_SERVICE);
-            boolean wifiState = wifiManager.isWifiEnabled();
-            if(!wifiState){
-                wifiManager.setWifiEnabled(true);
-                Handler handler = new Handler();
-                handler.postDelayed(new Runnable() {
-                    public void run() {
-                        if(Connection.testConnection()){
-                            JSONArray jsonArray = loadJsonToArray();
-                            Log.d("MyTag", "jsonArray-  "+jsonArray.toString());
-                            if(jsonArray.length()>0){
-                                boolean result = Connection.sendJson(jsonArray);
-                                if(result)FileHandler.getInstance(getApplicationContext()).clearFile();
-                            }
-
-                        }
-                        wifiManager.setWifiEnabled(false);
-                    }
-                }, 15000);
-
-            }
-            timerWifiHandler.postDelayed(this, 2*60*1000);
-        }
-    };
 
     @Override
     public void onCreate() {
@@ -103,32 +66,17 @@ public class LocationService extends Service {
         locationManager = (LocationManager) getApplicationContext().getSystemService(Context.LOCATION_SERVICE);
         store = Store.getInstance();
         lastLocation = store.getActualLoc();
-        locationListener = new LocationListener() {
 
-            @Override
-            public void onStatusChanged(String provider,
-                                        int status, Bundle extras) {}
-
-            @Override
-            public void onProviderEnabled(String provider) {}
-
-            @Override
-            public void onProviderDisabled(String provider) {}
-
-            @Override
-            public void onLocationChanged(Location location) {
-                doLocationUpdate(location, false);
-            }
-        };
         startRecording();
 
-
+        alarmWifi.CancelAlarm(LocationService.this);
+        alarmGPS.CancelAlarm(LocationService.this);
         Log.d("MyTag", "gpsMax"+gpsMax);
         if (!gpsMax ) {
-            timerGpsHandler.postDelayed(timerGpsRunnable,60*1000);
+            alarmGPS.SetAlarm(LocationService.this,10*60*1000);
         }
         if(canChangeWifi){
-            timerWifiHandler.postDelayed(timerWifiRunnable,0);
+            alarmWifi.SetAlarm(LocationService.this,3*60*1000);
         }
 
 
@@ -137,7 +85,6 @@ public class LocationService extends Service {
                 if ("edittext_preference_time".equals(key) || "edittext_preference_acc".equals(key) ){
                     loadPref();
                     Log.d("MyTag","changePref acc or time");
-                    locationManager.removeUpdates(locationListener);
                     startRecording();
 
                 }
@@ -149,10 +96,14 @@ public class LocationService extends Service {
 
     @Override
     public void onDestroy() {
-        timerGpsHandler.removeCallbacksAndMessages(null);
-        timerWifiHandler.removeCallbacksAndMessages(null);
-        checkLocationHandler.removeCallbacksAndMessages(null);
-        locationManager.removeUpdates(locationListener);
+        if (wifiChangeFromApp){
+            WifiManager wifiManager = (WifiManager)getSystemService(Context.WIFI_SERVICE);
+            wifiManager.setWifiEnabled(false);
+            wifiChangeFromApp = false;
+        }
+        alarmRefresh.CancelAlarm(LocationService.this);
+        alarmWifi.CancelAlarm(LocationService.this);
+        alarmGPS.CancelAlarm(LocationService.this);
 
         super.onDestroy();
     }
@@ -160,8 +111,11 @@ public class LocationService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         loadPref();
+        Location location = getBestLocation();
+        doLocationUpdate(location,false);
         return Service.START_STICKY;
     }
+
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -205,7 +159,7 @@ public class LocationService extends Service {
     }
 
 
-    private Location getBestLocation() {
+    protected Location getBestLocation() {
         Location gpslocation = getLocationByProvider(LocationManager.GPS_PROVIDER);
         Location networkLocation =
                 getLocationByProvider(LocationManager.NETWORK_PROVIDER);
@@ -269,70 +223,30 @@ public class LocationService extends Service {
 
         long checkInterval = gpsCheckTime;//getGPSCheckMilliSecsFromPrefs();
         long minDistance = gpsMinDistance; //getMinDistanceFromPrefs();
-
-        Runnable locationRefreshRunnable = new Runnable() {
-
-            @Override
-            public void run() {
-                Log.d("MyTag", "update from runnable");
-                Location location = getBestLocation();
-                doLocationUpdate(location, false);
-                checkLocationHandler.postDelayed(this, gpsCheckTime);
-            }
-        };
-
-        locationManager.removeUpdates(locationListener);
+        int i = 0;
 
         for (String s : locationManager.getAllProviders()) {
+            Intent activeIntent = new Intent(this, LocationReceiver.class);
+            PendingIntent locationListenerPendingIntent =
+                    PendingIntent.getBroadcast(this, i++, activeIntent, PendingIntent.FLAG_CANCEL_CURRENT);
+            locationManager.removeUpdates(locationListenerPendingIntent);
+
             if(!s.equals(LocationManager.GPS_PROVIDER) || gpsMax){
-                locationManager.requestLocationUpdates(s, checkInterval,
-                        minDistance, locationListener);
+                locationManager.requestLocationUpdates(s,checkInterval,minDistance,locationListenerPendingIntent);
             }
 
         }
-        synchronized (checkLocationHandler){
-            checkLocationHandler.removeCallbacksAndMessages(null);
-            Log.d("MyTag", "removeCallbacks");
-            checkLocationHandler.postDelayed(locationRefreshRunnable,0);
-            Log.d("MyTag", "PostDelayed");
+        synchronized (alarmRefresh){
+            alarmRefresh.CancelAlarm(LocationService.this);
+            alarmRefresh.SetAlarm(LocationService.this,checkInterval);
         }
 
     }
 
-    private void shortGpsUpdate(){
-            final LocationListener locationListener = new LocationListener() {
-
-                @Override
-                public void onStatusChanged(String provider,
-                                            int status, Bundle extras) {}
-
-                @Override
-                public void onProviderEnabled(String provider) {}
-
-                @Override
-                public void onProviderDisabled(String provider) {}
-
-                @Override
-                public void onLocationChanged(Location location) {
-                    Log.d("MyTag", "GPS Quick refresh");
-                }
-            };
-            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 8000,
-                    50, locationListener);
-
-            Handler handler = new Handler();
-            handler.postDelayed(new Runnable() {
-                public void run() {
-                    locationManager.removeUpdates(locationListener);
-                    doLocationUpdate(getBestLocation(), false);
-                    result = Activity.RESULT_OK;
-                }
-            }, 24000);
-
-    }
 
 
-    private void doLocationUpdate(Location location, boolean force) {
+
+    protected void doLocationUpdate(Location location, boolean force) {
         result = Activity.RESULT_OK;
         long minDistance = gpsMinDistance;//getMinDistanceFromPrefs();
         Log.d("MyTag", "update received:" + location);
@@ -349,7 +263,7 @@ public class LocationService extends Service {
             if (store.getUploadedLoc() != null) {
                 float distance = location.distanceTo(store.getUploadedLoc());
                 Log.d("MyTag", "Distance to last: " + distance);
-                if (location.distanceTo(store.getUploadedLoc()) < minDistance && !force) {
+                if (distance < minDistance && !force) {
                     Log.d("MyTag", "Position didn't change");
                     return;
                 }
@@ -429,14 +343,5 @@ public class LocationService extends Service {
 
 }
 
- class LocUpdate{
-    private static LocUpdate instance = null;
-    public static LocUpdate getInstance() {
-        if (instance == null) {
-            instance = new LocUpdate();
-        }
-        return instance;
-    }
 
 
-}

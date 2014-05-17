@@ -85,7 +85,7 @@ public class MainActivity extends ActionBarActivity {
             startService(new Intent(getApplicationContext(), LocationService.class));
         }else{
             AlertDialog.Builder alert = new AlertDialog.Builder(this);
-            alert.setTitle("Sign in");
+            alert.setTitle("Log in");
             alert.setMessage("UserName");
             final EditText input = new EditText(this);
             alert.setView(input);
@@ -160,6 +160,17 @@ public class MainActivity extends ActionBarActivity {
     @Override
     protected void onResume() {
         registerReceiver(receiver, new IntentFilter(LocationService.NOTIFICATION));
+        Location uploadedLoc = store.getUploadedLoc();
+        if(uploadedLoc!=null){
+            Date date = new Date(uploadedLoc.getTime());
+            uploadedRecord.setText("Uploaded location:\nLat: " + uploadedLoc.getLatitude() + "\nLong: " + uploadedLoc.getLongitude() + "\nProv: " + uploadedLoc.getProvider() + "\nAcc: " + uploadedLoc.getAccuracy() + "\nTime:" + date.toString());
+        }
+
+        Location actualLoc = store.getActualLoc();
+        if(actualLoc != null){
+            Date date = new Date(actualLoc.getTime());
+            locViewGPS.setText("Actual location:\nLat: "+actualLoc.getLatitude()+"\nLong: "+actualLoc.getLongitude()+"\nProv: "+actualLoc.getProvider()+"\nAcc: "+actualLoc.getAccuracy() + "\nTime:"+date.toString());
+        }
         super.onResume();
     }
 
